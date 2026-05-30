@@ -1,0 +1,260 @@
+import { useState } from "react";
+
+// ── Colour palette — blue/amber, WCAG AA on dark, colour-blind safe ──
+const C = {
+  bg:"#020c16", grid:"#0a1e32", dim:"#4a7090", text:"#c4d8ea", heading:"#e8f4ff",
+  CA:"#4B9FD5",   // Blue  – Aircraft A
+  CB:"#E8A030",   // Amber – Aircraft B
+  sys:"#35BFB0",  // Teal  – system / parity
+  warn:"#E8A030",
+};
+
+// ── Radar technology badges ──────────────────────────────────────────
+const TECH = {
+  "LPI-AESA": { label:"LPI AESA",  bg:"rgba(75,159,213,0.18)", border:"#4B9FD5", tx:"#7EC8F0" },
+  "AESA":     { label:"AESA",      bg:"rgba(53,191,176,0.15)", border:"#35BFB0", tx:"#6DDFD0" },
+  "PESA":     { label:"PESA",      bg:"rgba(201,162,39,0.15)", border:"#C9A227", tx:"#E8C84A" },
+  "MSA":      { label:"MECH.SCAN", bg:"rgba(212,122,46,0.15)", border:"#D47A2E", tx:"#F0A05A" },
+  "AEW":      { label:"AEW&C",     bg:"rgba(155,111,204,0.15)",border:"#9B6FCC", tx:"#C4A0EE" },
+};
+
+const CAT_LABEL = {
+  fighter: "── FIGHTER AIRCRAFT ──",
+  aewc:    "── FIXED-WING AEW&C ──",
+  heli:    "── HELICOPTER AEW ──",
+};
+
+// Nation grouping (key = flag emoji, value = display label)
+const NATION_LABEL = {
+  "🇺🇸": "UNITED STATES",
+  "🇬🇧": "UK / EUROPEAN",
+  "🇫🇷": "FRANCE",
+  "🇸🇪": "SWEDEN",
+  "🇷🇺": "RUSSIA",
+  "🇨🇳": "CHINA",
+  "🇦🇺": "AUSTRALIA",
+};
+const NATION_ORDER = ["🇺🇸", "🇬🇧", "🇫🇷", "🇸🇪", "🇷🇺", "🇨🇳", "🇦🇺"];
+
+// ── BVR Missile database ─────────────────────────────────────────────
+// Sources: Wikipedia (AIM-120, Meteor, R-37, R-77, PL-15, PL-17, AIM-260,
+// PL-21) · Defence Security Asia · DefenceWeb · TWZ · EurAsian Times ·
+// National Interest · Defense Update · Bharat Articles Meteor analysis.
+// All ranges are open-source best estimates. NEZ figures are derived
+// (Meteor explicitly 3× AMRAAM per MBDA; others estimated from kinematic
+// class). "quality" combines seeker, ECCM, datalink modernity 0–1.
+const MISSILES = [
+  { id:"aim120c", name:"AIM-120C-7 AMRAAM", flag:"🇺🇸", origin:"USA", year:2003,
+    cls:"Medium BVR", maxRange:105, nez:25, mach:4, mass:161, warhead:20,
+    propulsion:"Solid rocket (boost-sustain)", seeker:"Active radar + INS/DL",
+    quality:0.82, note:"NATO standard BVR. Combat proven. Improved seeker over AIM-120B." },
+  { id:"aim120d", name:"AIM-120D AMRAAM", flag:"🇺🇸", origin:"USA", year:2015,
+    cls:"Medium BVR", maxRange:160, nez:45, mach:4, mass:161, warhead:20,
+    propulsion:"Solid rocket (boost-only)", seeker:"Active radar + GPS + 2-way DL",
+    quality:0.90, note:"Premier US AMRAAM. ~50% range increase over C-7 via larger boost motor + improved guidance." },
+  { id:"aim260", name:"AIM-260 JATM", flag:"🇺🇸", origin:"USA", year:2024,
+    cls:"Long BVR", maxRange:200, nez:80, mach:5, mass:200, warhead:25,
+    propulsion:"Advanced solid rocket", seeker:"Multi-mode advanced radar",
+    quality:0.97, note:"Designed specifically to counter PL-15. Fits AMRAAM form factor for internal carry. Production began 2024; many details classified." },
+  { id:"aim174b", name:"AIM-174B Gunslinger", flag:"🇺🇸", origin:"USA", year:2024,
+    cls:"Very Long Range", maxRange:400, nez:120, mach:3.5, mass:700, warhead:64,
+    propulsion:"SM-6 derived dual-pulse", seeker:"Multi-mode + 2-way DL",
+    quality:0.78, note:"Air-launched SM-6 derivative. Devastating vs slow/large targets (AWACS, tankers). Less effective vs maneuvering fighters at extreme range. F/A-18E carries up to 4 externally." },
+  { id:"meteor", name:"MBDA Meteor", flag:"🇪🇺", origin:"Europe (UK/DE/FR/IT/ES/SE)", year:2016,
+    cls:"Long BVR (ramjet)", maxRange:200, nez:65, mach:4, mass:190, warhead:22,
+    propulsion:"Throttleable solid ramjet", seeker:"Active radar + 2-way DL",
+    quality:0.96, note:"Ramjet sustains thrust throughout flight. NEZ ~3× AMRAAM (MBDA). Largest no-escape zone of any operational BVR. Used by Typhoon, Rafale, Gripen E. F-35 integration planned." },
+  { id:"mica", name:"MBDA MICA-EM", flag:"🇫🇷", origin:"France", year:1996,
+    cls:"Short-Medium BVR", maxRange:80, nez:15, mach:4, mass:112, warhead:12,
+    propulsion:"Solid rocket", seeker:"Active radar / imaging IR",
+    quality:0.78, note:"Dual-role short-to-medium. Carried by Rafale alongside Meteor. MICA-NG (Next Gen) extends to ~100km." },
+  { id:"r77", name:"R-77 (RVV-AE)", flag:"🇷🇺", origin:"Russia", year:1994,
+    cls:"Medium BVR", maxRange:80, nez:15, mach:4, mass:175, warhead:22,
+    propulsion:"Solid rocket", seeker:"Active radar",
+    quality:0.72, note:"Original R-77 'AMRAAMski'. Lattice fins. Limited range vs newer Western missiles." },
+  { id:"r77_1", name:"R-77-1 (RVV-SD)", flag:"🇷🇺", origin:"Russia", year:2010,
+    cls:"Medium BVR", maxRange:110, nez:25, mach:4, mass:190, warhead:22,
+    propulsion:"Solid rocket", seeker:"Active radar + INS/DL",
+    quality:0.80, note:"Modernised R-77. Conventional fins replace lattice. Improved seeker. Used by Su-35, Su-30SM, Su-57." },
+  { id:"r77m", name:"R-77M (Izd. 180)", flag:"🇷🇺", origin:"Russia", year:2020,
+    cls:"Medium BVR (modern)", maxRange:190, nez:50, mach:4, mass:190, warhead:22,
+    propulsion:"Dual-pulse solid", seeker:"AESA radar + DL",
+    quality:0.88, note:"AESA seeker, dual-pulse motor, internal carriage for Su-57. Designed as AIM-120D peer." },
+  { id:"r37m", name:"R-37M (RVV-BD)", flag:"🇷🇺", origin:"Russia", year:2019,
+    cls:"Very Long Range", maxRange:350, nez:100, mach:6, mass:510, warhead:60,
+    propulsion:"Dual-pulse solid", seeker:"INS + Active radar",
+    quality:0.74, note:"Used extensively in Ukraine to keep Ukrainian fighters at distance. 300–400 km vs slow targets; far less effective vs maneuvering fighters at extreme range." },
+  { id:"pl12", name:"PL-12 (SD-10)", flag:"🇨🇳", origin:"China", year:2005,
+    cls:"Medium BVR", maxRange:100, nez:20, mach:4, mass:180, warhead:23,
+    propulsion:"Variable-thrust rocket", seeker:"Active radar",
+    quality:0.77, note:"Chinese early-generation BVR. Capability between AIM-120B and C-4. Used by older J-10, J-11." },
+  { id:"pl15", name:"PL-15", flag:"🇨🇳", origin:"China", year:2016,
+    cls:"Long BVR", maxRange:250, nez:70, mach:5, mass:210, warhead:25,
+    propulsion:"Dual-pulse solid", seeker:"AESA radar + DL",
+    quality:0.93, note:"AESA seeker, dual-pulse motor. Combat deployed by Pakistan vs India May 2025 (reportedly downed a Rafale). Primary J-20 weapon. Triggered US AIM-260 development." },
+  { id:"pl17", name:"PL-17", flag:"🇨🇳", origin:"China", year:2021,
+    cls:"Very Long Range", maxRange:400, nez:130, mach:4, mass:380, warhead:50,
+    propulsion:"Dual-pulse + TVC", seeker:"Active radar",
+    quality:0.80, note:"~6m length. NATO designation CH-AA-12 Auger. Designed for AEW/tanker killing. Limited vs maneuvering fighters at extreme range. Carried externally by J-16." },
+];
+
+// ── Aircraft loadouts ────────────────────────────────────────────────
+// Primary BVR missile listed first.
+const LOADOUTS = {
+  f22:            ["aim120d", "aim260", "aim120c"],
+  f35a:           ["aim120d", "aim260", "meteor", "aim120c"],
+  f15ex:          ["aim120d", "aim260", "aim174b"],
+  f16:            ["aim120c", "aim120d"],
+  fa18:           ["aim120d", "aim260", "aim174b"],
+  eurofighter_t3: ["meteor", "aim120c"],
+  eurofighter_t1: ["aim120c", "meteor"],
+  rafale:         ["meteor", "mica"],
+  gripene:        ["meteor", "aim120c"],
+  gripen_c_mk4:   ["meteor", "aim120c"],
+  gripen_c_mk3:   ["meteor", "aim120c"],
+  su57:           ["r77m", "r37m", "r77_1"],
+  su35:           ["r77_1", "r37m", "r77"],
+  mig29m:         ["r77", "r77_1"],
+  j20:            ["pl15", "pl17"],
+};
+
+// ── Aircraft database ────────────────────────────────────────────────
+// refRange = detection range (km) vs 1 m² target. R = refRange × RCS^¼
+// AEW refRanges back-calc'd from open fighter figures: R_fighter / 1.495
+const AIRCRAFT = [
+  { cat:"fighter", id:"f22",  name:"F-22 Raptor", flag:"🇺🇸", gen:"5th Gen",
+    rcs:0.0001, rcsLabel:"0.0001 m²", rcsNote:"marble-sized",
+    radar:"AN/APG-77v1", radarType:"LPI AESA", radarTech:"LPI-AESA", refRange:200, modules:2000, band:"X-band", role:"Air Superiority",
+    note:"World's lowest-RCS operational fighter. S-duct inlets, 67 edge alignments, ferrite RAM. APG-77v1 reportedly detects 1 m² at ~400 km per DoD specs." },
+  { cat:"fighter", id:"f35a", name:"F-35A Lightning II", flag:"🇺🇸", gen:"5th Gen",
+    rcs:0.005, rcsLabel:"0.005 m²", rcsNote:"golf-ball sized",
+    radar:"AN/APG-81", radarType:"LPI AESA", radarTech:"LPI-AESA", refRange:160, modules:1676, band:"X-band", role:"Multi-Role Strike",
+    note:"Stealthier than B-2 from the front; rear RCS elevated due to nozzle. LPI waveforms deny RWR detection. Sensor fusion with DAS/EOTS." },
+  { cat:"fighter", id:"su57", name:"Su-57 Felon", flag:"🇷🇺", gen:"5th Gen",
+    rcs:0.5, rcsLabel:"~0.5 m²", rcsNote:"frontal-optimised",
+    radar:"N036 Byelka", radarType:"Multi-array AESA", radarTech:"AESA", refRange:200, modules:2322, band:"X/L-band", role:"Air Superiority",
+    note:"2,322 T/R modules across 5 arrays (1,514 front + 2×404 side + 2 L-band). 270° coverage. Tracks 60, engages 16. L-band defeats X-band RAM." },
+  { cat:"fighter", id:"j20", name:"J-20 Mighty Dragon", flag:"🇨🇳", gen:"5th Gen",
+    rcs:0.05, rcsLabel:"~0.05 m²", rcsNote:"small bird (est.)",
+    radar:"Type 1475 (KLJ-5)", radarType:"AESA", radarTech:"AESA", refRange:180, modules:1856, band:"X-band", role:"Air Superiority",
+    note:"Analysts estimate RCS between F-35 and F-22. Auxiliary lateral arrays widen FOV. Full specs classified." },
+  { cat:"fighter", id:"f15ex", name:"F-15EX Eagle II", flag:"🇺🇸", gen:"4.5th Gen",
+    rcs:25, rcsLabel:"25 m²", rcsNote:"large conventional",
+    radar:"AN/APG-82(V)1", radarType:"GaN AESA", radarTech:"AESA", refRange:205, modules:1500, band:"X-band", role:"Air Sup./Strike",
+    note:"No stealth shaping but the most powerful US non-stealth fighter radar. GaN modules give long range and strong jamming resistance." },
+  { cat:"fighter", id:"fa18", name:"F/A-18E Super Hornet", flag:"🇺🇸", gen:"4.5th Gen",
+    rcs:1, rcsLabel:"1 m²", rcsNote:"person-sized",
+    radar:"AN/APG-79", radarType:"AESA", radarTech:"AESA", refRange:160, modules:1100, band:"X-band", role:"Naval Multi-Role",
+    note:"Some LO features over legacy Hornet. In NIFC-CA, E-2D cues targets beyond the Hornet's own radar horizon." },
+  { cat:"fighter", id:"eurofighter_t3", name:"Typhoon Tr.3+ (CAPTOR-E)", flag:"🇬🇧", gen:"4.5th Gen",
+    rcs:0.5, rcsLabel:"~0.5 m²", rcsNote:"reduced (RAM)",
+    radar:"CAPTOR-E / ECRS Mk2", radarType:"Roll-gimbal AESA", radarTech:"AESA", refRange:193, modules:1500, band:"X-band", role:"Air Sup./Multi-Role",
+    note:"Roll-repositionable antenna gives ±100° field of regard vs ~60° fixed AESA. ECRS Mk2 adds electronic attack. ~120 mi vs 1 m²." },
+  { cat:"fighter", id:"eurofighter_t1", name:"Typhoon Tr.1/2 (CAPTOR-M)", flag:"🇬🇧", gen:"4.5th Gen",
+    rcs:0.5, rcsLabel:"~0.5 m²", rcsNote:"same airframe, MSA radar",
+    radar:"CAPTOR-M (ECR-90C)", radarType:"Mechanically Scanned", radarTech:"MSA", refRange:185, modules:null, band:"X-band", role:"Air Sup./Multi-Role",
+    note:"Original Typhoon radar. 70cm planar array, mechanically steered ±60°. 185 km vs 1 m², 370 km instrumented. ~550 NATO aircraft still use it. No LPI, vulnerable to DRFM jamming." },
+  { cat:"fighter", id:"rafale", name:"Rafale F4", flag:"🇫🇷", gen:"4.5th Gen",
+    rcs:1, rcsLabel:"1 m²", rcsNote:"person-sized",
+    radar:"RBE2-AA AESA", radarType:"AESA", radarTech:"AESA", refRange:180, modules:1000, band:"X-band", role:"Multi-Role",
+    note:"RBE2-AA tracks 40 targets, engages 8. >200 km vs fighter. Coupled with OSF IRST for passive tracking." },
+  { cat:"fighter", id:"su35", name:"Su-35S Flanker-E", flag:"🇷🇺", gen:"4.5th Gen",
+    rcs:3, rcsLabel:"~3 m²", rcsNote:"semi-reduced",
+    radar:"N035 Irbis-E", radarType:"PESA", radarTech:"PESA", refRange:200, modules:null, band:"X-band", role:"Air Superiority",
+    note:"1,200 mm antenna, ~20 kW peak — one of the most powerful legacy radars. 350–400 km fighter detection claimed. PESA: vulnerable to DRFM vs AESA." },
+  { cat:"fighter", id:"gripene", name:"Gripen E (ES-05 Raven)", flag:"🇸🇪", gen:"4.5th Gen",
+    rcs:0.5, rcsLabel:"~0.5 m²", rcsNote:"reduced signature",
+    radar:"ES-05 Raven", radarType:"Roll-gimbal AESA", radarTech:"AESA", refRange:150, modules:1000, band:"X-band", role:"Multi-Role",
+    note:"Roll-gimbal antenna gives ±100° field of regard. By Leonardo (Selex ES). Major upgrade over Gripen C. Smaller airframe limits aperture." },
+  { cat:"fighter", id:"f16", name:"F-16 Viper (Blk 70)", flag:"🇺🇸", gen:"4th Gen",
+    rcs:5, rcsLabel:"5 m²", rcsNote:"medium conventional",
+    radar:"AN/APG-83 SABR", radarType:"AESA", radarTech:"AESA", refRange:120, modules:1000, band:"X-band", role:"Multi-Role",
+    note:"Upgraded from APG-68 PESA. SABR AESA gives big range/tracking gain. Airframe RCS unchanged — no LO shaping." },
+  { cat:"fighter", id:"mig29m", name:"MiG-29M Fulcrum-D", flag:"🇷🇺", gen:"4th Gen",
+    rcs:5, rcsLabel:"5 m²", rcsNote:"conventional",
+    radar:"Zhuk-ME", radarType:"PESA", radarTech:"PESA", refRange:120, modules:null, band:"X-band", role:"Air Superiority",
+    note:"Improved over original N019 MSA radar. PESA; ~120 km vs aircraft-sized. No stealth features." },
+  { cat:"fighter", id:"gripen_c_mk4", name:"Gripen C/D (PS-05/A Mk4)", flag:"🇸🇪", gen:"4th Gen",
+    rcs:0.5, rcsLabel:"~0.5 m²", rcsNote:"reduced signature",
+    radar:"PS-05/A Mk4", radarType:"Mech. Scan (upgraded b/e)", radarTech:"MSA", refRange:120, modules:null, band:"X-band", role:"Multi-Role",
+    note:"2015 upgrade: digital exciter/receiver + new processor. Saab claims 150% range at altitude vs Mk3 (~120 km vs 1 m²). Still mechanically scanned — no LPI." },
+  { cat:"fighter", id:"gripen_c_mk3", name:"Gripen C/D (PS-05/A Mk3)", flag:"🇸🇪", gen:"4th Gen",
+    rcs:0.5, rcsLabel:"~0.5 m²", rcsNote:"reduced signature",
+    radar:"PS-05/A Mk3 (JURA)", radarType:"Mechanically Scanned", radarTech:"MSA", refRange:80, modules:null, band:"X-band", role:"Multi-Role",
+    note:"Baseline Gripen C/D radar (Ericsson/GEC Marconi). ~80 km vs 1 m² per open analysis. AMRAAM compatible. Superseded by Mk4 and ES-05." },
+  { cat:"aewc", id:"e2d", name:"E-2D Advanced Hawkeye", flag:"🇺🇸", gen:"AEW&C",
+    rcs:30, rcsLabel:"~30 m²", rcsNote:"turboprop + rotodome",
+    radar:"AN/APY-9", radarType:"UHF AESA (hybrid)", radarTech:"AEW", refRange:368, modules:null, band:"UHF (0.3–3 GHz)", role:"Carrier AEW / Battle Mgmt",
+    note:"7.3 m rotodome. 550–650 km range (Wikipedia/GlobalSecurity). Carrier-capable NIFC-CA node. UHF defeats X-band RAM — stealth detection likely far better than shown. refRange = 550 ÷ 1.495 = 368." },
+  { cat:"aewc", id:"e3g", name:"E-3G Sentry (AWACS)", flag:"🇺🇸", gen:"AEW&C",
+    rcs:100, rcsLabel:"~100 m²", rcsNote:"707 + rotodome",
+    radar:"AN/APY-2", radarType:"S-band PESA", radarTech:"AEW", refRange:321, modules:null, band:"S-band (2–4 GHz)", role:"Strategic AWACS",
+    note:"9.1 m rotodome, ~2 MW peak. ~400–480 km vs fighter (open sources). S-band less affected by X-band RAM. Very large RCS = priority target. refRange = 480 ÷ 1.495 = 321." },
+  { cat:"aewc", id:"e7a", name:"E-7A Wedgetail", flag:"🇦🇺", gen:"AEW&C",
+    rcs:50, rcsLabel:"~50 m²", rcsNote:"737 + fixed MESA",
+    radar:"MESA (L/S AESA)", radarType:"Fixed dual-band AESA", radarTech:"AEW", refRange:334, modules:null, band:"L/S-band", role:"AEW&C / Theatre C2",
+    note:"Fixed MESA array replaces rotodome. L+S dual-band. ~500 km vs fighter. RAAF/RAF/USAF/Korea. refRange = 500 ÷ 1.495 = 334." },
+  { cat:"aewc", id:"asc890", name:"ASC 890 Argus (Erieye)", flag:"🇸🇪", gen:"AEW&C",
+    rcs:15, rcsLabel:"~15 m²", rcsNote:"Saab 340 turboprop",
+    radar:"PS-890 Erieye", radarType:"S-band AESA (fixed dorsal)", radarTech:"AEW", refRange:234, modules:200, band:"S-band (3 GHz)", role:"AEW&C / Surveillance",
+    note:"200-module S-band AESA in fixed dorsal 'balance beam'. 120° each side; blind fore/aft. Up to 450 km (Saab). Now operational with Ukraine. refRange = 350 ÷ 1.495 = 234 (conservative)." },
+  { cat:"aewc", id:"a50u", name:"A-50U Mainstay-B", flag:"🇷🇺", gen:"AEW&C",
+    rcs:100, rcsLabel:"~100 m²", rcsNote:"Il-76 + rotodome",
+    radar:"Shmel-M", radarType:"S-band PESA", radarTech:"AEW", refRange:234, modules:null, band:"S-band", role:"Strategic AWACS",
+    note:"Il-76 based. ~350 km vs fighter. Notable losses in Ukraine show AEW vulnerability to long-range SAM/AAM. refRange = 350 ÷ 1.495 = 234." },
+  { cat:"aewc", id:"kj500", name:"KJ-500", flag:"🇨🇳", gen:"AEW&C",
+    rcs:70, rcsLabel:"~70 m²", rcsNote:"Y-9 + tri-face AESA",
+    radar:"AESA (3-face fixed)", radarType:"AESA (no rotodome)", radarTech:"AEW", refRange:267, modules:null, band:"S-band (est.)", role:"AEW&C / Battle Mgmt",
+    note:"Three fixed AESA faces on Y-9 give 360° coverage. ~400 km vs fighter (estimates). More capable than KJ-200. refRange = 400 ÷ 1.495 = 267." },
+  { cat:"heli", id:"ka31", name:"Ka-31 Helix AEW", flag:"🇷🇺", gen:"Heli AEW",
+    rcs:5, rcsLabel:"~5 m²", rcsNote:"medium helicopter",
+    radar:"E-801M Oko", radarType:"Mech. Scan (folds under)", radarTech:"MSA", refRange:100, modules:null, band:"X-band", role:"Naval AEW / Ship Defence",
+    note:"6×1 m planar array stows under fuselage, deploys and rotates at 6 rpm. Detects fighter up to 150 km (Airforce-Technology). Tracks 40. Russia/India. refRange = 150 ÷ 1.495 = 100." },
+  { cat:"heli", id:"crowsnest", name:"AW Merlin HM2 Crowsnest", flag:"🇬🇧", gen:"Heli AEW",
+    rcs:4, rcsLabel:"~4 m²", rcsNote:"medium helicopter",
+    radar:"Thales Searchwater (Crowsnest)", radarType:"Mechanically Scanned", radarTech:"MSA", refRange:107, modules:null, band:"X-band", role:"Carrier AEW / Fleet Defence",
+    note:"Replaces Sea King ASaC7 on RN carriers. 87 nm (161 km) official detection range (UK Defence Forum). Low altitude limits horizon; optimised for sea-skimmer/cruise missile detection. refRange = 160 ÷ 1.495 = 107." },
+];
+
+// ── Physics: R = R_ref × σ^(1/4) ─────────────────────────────────────
+const calcDetect = (radarAc, targetAc) =>
+  radarAc.refRange * Math.pow(Math.max(targetAc.rcs, 1e-7), 0.25);
+const fmt   = km => km >= 100 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`;
+const fmtNm = km => `${Math.round(km * 0.539957)} nm`;
+const fmtPk = p => `${Math.round(p * 100)}%`;
+
+// ── Probability of kill model ────────────────────────────────────────
+// Composite Pk = kinematic × stealth × target-type × missile-quality.
+//
+// Kinematic: 1.0 within No-Escape Zone (target can't kinematically defeat
+//   the missile), smoothly decays toward 0 approaching max range, then a
+//   small tail beyond max range (rare lucky hits on slow/predictable tgts).
+//
+// Stealth: low-RCS targets defeat the seeker's terminal lock acquisition
+//   at long range. At short range (<15km) the seeker can find anything,
+//   so stealth advantage erodes. Uses log(RCS) for smooth scaling.
+//
+// Target-type: AEW platforms (slow, large, predictable) easier to hit;
+//   helicopters (small but very slow + low altitude) somewhat harder for
+//   air-air missile due to look-down clutter.
+function calcPk(missile, target, range) {
+  if (!missile || !target || range <= 0) return 0;
+
+  // Kinematic envelope
+  let kin;
+  if (range <= missile.nez) {
+    kin = 1.0;
+  } else if (range <= missile.maxRange) {
+    const t = (range - missile.nez) / Math.max(missile.maxRange - missile.nez, 1);
+    kin = 1 - Math.pow(t, 1.4);                    // smooth decay 1→~0
+  } else if (range <= missile.maxRange * 1.25) {
+    const t = (range - missile.maxRange) / (missile.maxRange * 0.25);
+    kin = 0.08 * Math.max(0, 1 - t);               // small ballistic tail
+  } else {
+    return 0;                                       // beyond reach
+  }
+
+  // Stealth modifier (log-scaled)
+  const rcsLog = Math.log10(Math.max(target.rcs, 1e-7));   // 1→0, 0.01→-2, 0.0001→-4
+  let stealthMod;
+  if (range < 15)       stealthMod = Math.max(0.85, 1.0 + rcsLo
